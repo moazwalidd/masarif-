@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>حساب المصاريف</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #F7F5F0; --surface: #fff; --surface2: #F0EDE6;
+  --accent: #2C5F2E; --accent-lt: #EAF3DE; --accent2: #97BC62;
+  --text: #1A1A1A; --text2: #666; --text3: #999;
+  --border: #E0DDD6; --danger: #C0392B; --danger-lt: #fdf0ef;
+  --shadow: 0 2px 12px rgba(0,0,0,0.07);
+}
+body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; direction: rtl; }
+
+/* ── HEADER ── */
+header { background: var(--accent); color: #fff; padding: 0.9rem 1.5rem; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 200; box-shadow: 0 2px 16px rgba(0,0,0,0.18); }
+.hdr-left h1 { font-size: 19px; font-weight: 700; }
+.hdr-left p  { font-size: 11px; opacity: 0.6; margin-top: 1px; }
+.hdr-btns { display: flex; gap: 7px; flex-wrap: wrap; }
+.btn-h { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: #fff; padding: 6px 14px; border-radius: 7px; font-family: 'Cairo', sans-serif; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.15s; white-space: nowrap; }
+.btn-h:hover { background: rgba(255,255,255,0.28); }
+.btn-h.danger { background: rgba(192,57,43,0.4); border-color: rgba(192,57,43,0.6); }
+.btn-h.danger:hover { background: rgba(192,57,43,0.6); }
+.sync-badge { display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.25); padding:5px 12px; border-radius:20px; font-size:11px; font-weight:600; color:#fff; cursor:pointer; white-space:nowrap; transition:background .2s; }
+.sync-badge:hover { background:rgba(255,255,255,0.22); }
+.sync-dot { width:8px; height:8px; border-radius:50%; background:#4ade80; flex-shrink:0; transition:background .3s; }
+.sync-dot.syncing { background:#facc15; animation:sdBlink .7s infinite; }
+.sync-dot.error   { background:#f87171; animation:none; }
+@keyframes sdBlink { 0%,100%{opacity:1}50%{opacity:.25} }
+#sync-toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%) translateY(60px); background:#1a1a1a; color:#fff; border:1px solid #333; border-radius:10px; padding:10px 20px; font-family:'Cairo',sans-serif; font-size:13px; font-weight:600; z-index:9999; opacity:0; transition:all .3s; pointer-events:none; white-space:nowrap; }
+#sync-toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+#sync-toast.ok  { border-color:#4ade80; color:#4ade80; }
+#sync-toast.err { border-color:#f87171; color:#f87171; }
+
+/* ── MONTHS BAR ── */
+.months-bar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0.65rem 1.5rem; display: flex; align-items: center; gap: 8px; overflow-x: auto; position: sticky; top: 57px; z-index: 100; }
+.month-tab { padding: 5px 14px; border-radius: 20px; border: 1.5px solid var(--border); background: var(--bg); color: var(--text2); font-family: 'Cairo', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all 0.15s; display: flex; align-items: center; gap: 6px; }
+.month-tab:hover { border-color: var(--accent2); color: var(--accent); }
+.month-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.month-tab .tab-total { font-size: 11px; opacity: 0.75; }
+.btn-new-month { padding: 5px 14px; border-radius: 20px; border: 1.5px dashed var(--accent2); background: var(--accent-lt); color: var(--accent); font-family: 'Cairo', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+.btn-new-month:hover { background: #d4edbe; }
+
+/* ── LAYOUT ── */
+main { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1rem; display: grid; grid-template-columns: 1fr 280px; grid-template-rows: auto auto 1fr; gap: 0 1.2rem; }
+.left-col  { grid-column: 1; grid-row: 1 / 4; display: flex; flex-direction: column; gap: 1.2rem; }
+.right-col { grid-column: 2; grid-row: 1 / 4; display: flex; flex-direction: column; gap: 1.2rem; }
+
+/* ── STATS ── */
+.stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.stat-card { background: var(--surface); border-radius: 12px; padding: 1rem; box-shadow: var(--shadow); text-align: center; border: 1px solid var(--border); }
+.stat-label { font-size: 12px; color: var(--text2); margin-bottom: 4px; }
+.stat-value { font-size: 20px; font-weight: 700; color: var(--accent); }
+
+/* ── FORM ── */
+.form-card { background: var(--surface); border-radius: 14px; padding: 1.1rem; box-shadow: var(--shadow); border: 1px solid var(--border); }
+.form-card h2 { font-size: 13px; font-weight: 600; color: var(--text2); margin-bottom: 0.8rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+.form-row { display: flex; gap: 7px; align-items: flex-end; flex-wrap: wrap; }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label { font-size: 11px; color: var(--text2); font-weight: 600; }
+.field.f-name   { flex: 3; min-width: 130px; }
+.field.f-amount { flex: 1.5; min-width: 85px; }
+.field.f-note   { flex: 2; min-width: 100px; }
+input[type="text"], input[type="number"] { height: 36px; padding: 0 10px; border: 1.5px solid var(--border); border-radius: 7px; background: var(--bg); color: var(--text); font-family: 'Cairo', sans-serif; font-size: 14px; direction: rtl; transition: border-color 0.15s; width: 100%; }
+input:focus { outline: none; border-color: var(--accent2); background: #fff; }
+.btn-add { height: 36px; padding: 0 16px; background: var(--accent); color: #fff; border: none; border-radius: 7px; font-family: 'Cairo', sans-serif; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap; flex-shrink: 0; transition: background 0.15s, transform 0.1s; }
+.btn-add:hover { background: #1e4a20; }
+.btn-add:active { transform: scale(0.97); }
+
+/* ── TABLE ── */
+.table-card { background: var(--surface); border-radius: 14px; box-shadow: var(--shadow); border: 1px solid var(--border); overflow: hidden; flex: 1; }
+.table-header { padding: 0.85rem 1.2rem; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); }
+.table-header h2 { font-size: 14px; font-weight: 700; }
+.hint { font-size: 11px; color: var(--text3); margin-top: 2px; }
+.badge { background: var(--surface2); color: var(--text2); font-size: 11px; padding: 2px 8px; border-radius: 20px; border: 1px solid var(--border); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+thead th { background: var(--surface2); color: var(--text2); font-size: 12px; font-weight: 600; padding: 8px 11px; text-align: right; border-bottom: 1px solid var(--border); }
+tbody tr { border-bottom: 1px solid var(--border); transition: background 0.1s; }
+tbody tr:last-child { border-bottom: none; }
+tbody tr:hover { background: #FAFAF7; }
+tbody tr.dragging { opacity: 0.3; }
+tbody tr.drag-over { background: #eaf5ec !important; outline: 2px solid var(--accent2); outline-offset: -1px; }
+tbody td { padding: 9px 11px; color: var(--text); vertical-align: middle; }
+td.td-drag   { color: var(--text3); cursor: grab; width: 24px; text-align: center; user-select: none; font-size: 13px; }
+td.td-num    { font-size: 11px; color: var(--text3); width: 22px; text-align: center; }
+td.td-amount { font-weight: 700; color: var(--accent); white-space: nowrap; }
+td.td-note   { color: var(--text2); font-size: 13px; }
+td.td-actions { width: 56px; }
+.row-btns { display: flex; gap: 3px; }
+.icon-btn { background: none; border: none; cursor: pointer; width: 26px; height: 26px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 13px; transition: background 0.15s, color 0.15s; color: var(--text3); }
+.icon-btn.edit:hover { color: var(--accent); background: var(--accent-lt); }
+.icon-btn.del:hover  { color: var(--danger); background: var(--danger-lt); }
+tbody tr.editing { background: #f6fbf6; }
+tbody tr.editing td { padding: 5px 6px; }
+.edit-input { height: 31px; padding: 0 7px; border: 1.5px solid var(--accent2); border-radius: 6px; background: #fff; color: var(--text); font-family: 'Cairo', sans-serif; font-size: 13px; direction: rtl; width: 100%; }
+.edit-input:focus { outline: none; }
+.save-btn { height: 31px; padding: 0 10px; background: var(--accent); color: #fff; border: none; border-radius: 6px; font-family: 'Cairo', sans-serif; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.save-btn:hover { background: #1e4a20; }
+.cancel-btn { height: 31px; padding: 0 8px; background: none; border: 1px solid var(--border); border-radius: 6px; font-family: 'Cairo', sans-serif; font-size: 12px; cursor: pointer; color: var(--text2); }
+tfoot td { padding: 10px 11px; font-weight: 700; font-size: 15px; background: var(--surface2); border-top: 2px solid var(--border); color: var(--text); }
+tfoot .total-amount { color: var(--accent); font-size: 16px; }
+.empty-row td { text-align: center; color: var(--text3); padding: 2.5rem; font-size: 14px; }
+.row-enter { animation: rowIn 0.2s ease; }
+@keyframes rowIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ── CHECKLIST SIDEBAR ── */
+.checklist-card { background: var(--surface); border-radius: 14px; box-shadow: var(--shadow); border: 1px solid var(--border); overflow: hidden; flex: 1; }
+.checklist-header { padding: 0.85rem 1.1rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.checklist-header h2 { font-size: 14px; font-weight: 700; }
+.check-progress { font-size: 11px; color: var(--text3); }
+.checklist-body { padding: 0.7rem; }
+.check-add-row { display: flex; gap: 6px; margin-bottom: 0.7rem; }
+.check-inp { flex: 1; height: 32px; padding: 0 9px; border: 1.5px solid var(--border); border-radius: 7px; background: var(--bg); font-family: 'Cairo', sans-serif; font-size: 13px; direction: rtl; color: var(--text); }
+.check-inp:focus { outline: none; border-color: var(--accent2); background: #fff; }
+.check-add-btn { height: 32px; width: 32px; background: var(--accent); color: #fff; border: none; border-radius: 7px; font-size: 18px; cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.check-add-btn:hover { background: #1e4a20; }
+.check-list { display: flex; flex-direction: column; gap: 4px; max-height: 420px; overflow-y: auto; }
+.check-item { display: flex; align-items: flex-start; gap: 8px; padding: 7px 8px; border-radius: 8px; border: 1px solid transparent; transition: background 0.1s; }
+.check-item:hover { background: var(--surface2); border-color: var(--border); }
+.check-item input[type="checkbox"] { width: 16px; height: 16px; margin-top: 2px; accent-color: var(--accent); cursor: pointer; flex-shrink: 0; }
+.check-item label { flex: 1; font-size: 13px; color: var(--text); cursor: pointer; line-height: 1.4; word-break: break-word; }
+.check-item.done label { text-decoration: line-through; color: var(--text3); }
+.check-del { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 13px; padding: 1px 4px; border-radius: 4px; flex-shrink: 0; opacity: 0; transition: opacity 0.15s; }
+.check-item:hover .check-del { opacity: 1; }
+.check-del:hover { color: var(--danger); }
+.check-empty { font-size: 13px; color: var(--text3); text-align: center; padding: 1.5rem 0; }
+
+/* ── MODAL ── */
+.overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 500; align-items: center; justify-content: center; }
+.overlay.show { display: flex; }
+.modal { background: var(--surface); border-radius: 16px; padding: 1.5rem; width: 320px; box-shadow: 0 8px 40px rgba(0,0,0,0.18); }
+.modal h3 { font-size: 16px; font-weight: 700; margin-bottom: 1rem; }
+.modal input { width: 100%; height: 40px; padding: 0 12px; border: 1.5px solid var(--border); border-radius: 8px; font-family: 'Cairo', sans-serif; font-size: 15px; direction: rtl; margin-bottom: 1rem; background: var(--bg); color: var(--text); }
+.modal input:focus { outline: none; border-color: var(--accent2); }
+.modal-btns { display: flex; gap: 8px; justify-content: flex-end; }
+.modal-btn { height: 36px; padding: 0 16px; border-radius: 7px; font-family: 'Cairo', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--bg); color: var(--text2); }
+.modal-btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.modal-btn.primary:hover { background: #1e4a20; }
+
+footer { grid-column: 1 / 3; text-align: center; padding: 1.2rem; color: var(--text3); font-size: 12px; }
+
+/* ── PRINT ── */
+.print-only { display: none; }
+@media print {
+  header, .months-bar, .form-card, .stats-grid,
+  .hint, .badge, .right-col, footer,
+  td.td-drag, td.td-num, td.td-actions { display: none !important; }
+
+  body { background: #fff; direction: rtl; }
+  main { display: block; max-width: 100%; padding: 0; }
+  .left-col { display: block; }
+
+  .print-only { display: block !important; }
+  .print-header { text-align: center; padding: 0 0 1rem; }
+  .print-header h1 { font-size: 20px; font-weight: 700; color: #2C5F2E; }
+  .print-header p  { font-size: 12px; color: #666; margin-top: 3px; }
+
+  .table-card { box-shadow: none; border: 1px solid #ccc; border-radius: 0; }
+  .table-header { display: none !important; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; direction: rtl; }
+  /* Force RTL column order: البند | المبلغ | الملاحظات */
+  thead tr, tbody tr, tfoot tr { display: table-row; direction: rtl; }
+  th, td { text-align: right; padding: 8px 10px; border: 1px solid #ccc; }
+  thead th { background: #e8f5e9 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; font-weight: 700; }
+  tfoot td { background: #d4edbe !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; font-weight: 700; }
+  tbody tr:nth-child(even) td { background: #f5faf5 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  td.td-amount { color: #2C5F2E; font-weight: 700; }
+  @page { margin: 1.5cm; size: A4; }
+}
+
+@media (max-width: 750px) {
+  main { grid-template-columns: 1fr; grid-template-rows: auto; }
+  .left-col  { grid-column: 1; grid-row: auto; }
+  .right-col { grid-column: 1; grid-row: auto; }
+  footer { grid-column: 1; }
+  .hdr-btns { gap: 5px; }
+}
+</style>
+</head>
+<body>
+
+<!-- PRINT HEADER (hidden on screen) -->
+<div class="print-only print-header">
+  <h1 id="print-title"></h1>
+  <p id="print-date"></p>
+</div>
+
+<header>
+  <div class="hdr-left">
+    <h1>حساب المصاريف</h1>
+    <p>اضغط على اسم الشهر لتعديله</p>
+  </div>
+  <div class="hdr-btns">
+    <div class="sync-badge" onclick="forceSyncNow()" title="اضغط للمزامنة">
+      <div class="sync-dot" id="sync-dot"></div>
+      <span id="sync-label">جاري الاتصال…</span>
+    </div>
+    <button class="btn-h" onclick="exportExcel()">⬇ Excel</button>
+    <button class="btn-h" onclick="window.print()">🖨 طباعة / PDF</button>
+    <button class="btn-h danger" onclick="deleteMonth()">حذف الشهر</button>
+  </div>
+</header>
+
+<div class="months-bar" id="months-bar"></div>
+
+<main>
+  <div class="left-col">
+    <!-- Stats -->
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-label">إجمالي المصاريف</div><div class="stat-value" id="stat-total">0</div></div>
+      <div class="stat-card"><div class="stat-label">عدد البنود</div><div class="stat-value" id="stat-count">0</div></div>
+    </div>
+
+    <!-- Add form -->
+    <div class="form-card">
+      <h2>إضافة بند جديد</h2>
+      <div class="form-row">
+        <div class="field f-name"><label>البند</label><input type="text" id="inp-name" placeholder="اكتب اسم البند..." /></div>
+        <div class="field f-amount"><label>المبلغ (جنيه)</label><input type="number" id="inp-amount" placeholder="0" min="0" /></div>
+        <div class="field f-note"><label>ملاحظات</label><input type="text" id="inp-note" placeholder="اختياري..." /></div>
+        <button class="btn-add" onclick="addRow()">+ إضافة</button>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="table-card">
+      <div class="table-header">
+        <div><h2 id="table-title">قائمة المصاريف</h2><div class="hint">اسحب ☰ لتغيير الترتيب &nbsp;|&nbsp; ✏ للتعديل</div></div>
+        <span class="badge" id="badge-count">0 بند</span>
+      </div>
+      <table id="main-table">
+        <thead>
+          <tr>
+            <th style="width:24px"></th>
+            <th style="width:22px;text-align:center">#</th>
+            <th>البند</th>
+            <th style="width:110px">المبلغ</th>
+            <th style="width:130px">ملاحظات</th>
+            <th style="width:56px"></th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+        <tfoot>
+          <tr>
+            <td colspan="3">الإجمالي</td>
+            <td class="total-amount" id="foot-total">0</td>
+            <td colspan="2"></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+
+  <!-- Sidebar checklist -->
+  <div class="right-col">
+    <div class="checklist-card">
+      <div class="checklist-header">
+        <h2>قائمة ملاحظات</h2>
+        <span class="check-progress" id="check-progress">0 / 0</span>
+      </div>
+      <div class="checklist-body">
+        <div class="check-add-row">
+          <button class="check-add-btn" onclick="addCheck()">+</button>
+          <input type="text" class="check-inp" id="check-inp" placeholder="أضف ملاحظة..." />
+        </div>
+        <div class="check-list" id="check-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>جميع البيانات محفوظة في المتصفح تلقائياً</footer>
+</main>
+
+<!-- Modal -->
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <h3>اسم الشهر</h3>
+    <input type="text" id="modal-inp" placeholder="مثال: حساب شهر 4" />
+    <div class="modal-btns">
+      <button class="modal-btn" onclick="closeModal()">إلغاء</button>
+      <button class="modal-btn primary" onclick="confirmModal()">حفظ</button>
+    </div>
+  </div>
+</div>
+
+<div id="sync-toast"></div>
+<script>
+// ── FIREBASE ──
+const firebaseConfig = {
+  apiKey:            "AIzaSyDTIL7C9KljT_9GsdRBKiJW_aLorLw6iwA",
+  authDomain:        "sab-38f2b.firebaseapp.com",
+  databaseURL:       "https://sab-38f2b-default-rtdb.firebaseio.com",
+  projectId:         "sab-38f2b",
+  storageBucket:     "sab-38f2b.firebasestorage.app",
+  messagingSenderId: "291515525857",
+  appId:             "1:291515525857:web:d994df4475ee2fa08fe5a0"
+};
+firebase.initializeApp(firebaseConfig);
+const fbDB  = firebase.database();
+const dbRef = fbDB.ref('hesab_db_v4');
+
+const LS_KEY = 'hesab_db_v4';
+function loadLocal()     { try { return JSON.parse(localStorage.getItem(LS_KEY))||null; } catch{return null;} }
+function saveLocal(d)    { localStorage.setItem(LS_KEY, JSON.stringify(d)); }
+
+function setSyncUI(status, text) {
+  document.getElementById('sync-dot').className   = 'sync-dot ' + (status==='ok'?'':status);
+  document.getElementById('sync-label').textContent = text;
+}
+function showToast(msg, type='ok') {
+  const t = document.getElementById('sync-toast');
+  t.textContent = msg; t.className = 'show ' + type;
+  clearTimeout(t._t); t._t = setTimeout(()=>t.className='', 2800);
+}
+
+function saveDB(data) {
+  saveLocal(data);
+  setSyncUI('syncing','جاري الحفظ…');
+  dbRef.set(data)
+    .then(()=>{ setSyncUI('ok','متزامن ✓'); showToast('✓ تم الحفظ على كل أجهزتك','ok'); })
+    .catch(()=>{ setSyncUI('error','خطأ في الحفظ'); showToast('⚠ فشل الحفظ — تحقق من الإنترنت','err'); });
+}
+
+function forceSyncNow() {
+  setSyncUI('syncing','جاري المزامنة…');
+  dbRef.once('value').then(snap=>{
+    const r=snap.val();
+    if(r){ db=r; saveLocal(db); render(); setSyncUI('ok','متزامن ✓'); showToast('🔄 تم التحديث'); }
+    else setSyncUI('ok','متزامن ✓');
+  }).catch(()=>setSyncUI('error','لا يوجد اتصال'));
+}
+
+// مستمع لحظي — يحدّث فوراً لو أي جهاز غيّر البيانات
+let _ignoreNext = false;
+dbRef.on('value', snap=>{
+  if(_ignoreNext){ _ignoreNext=false; return; }
+  const r=snap.val();
+  if(!r) return;
+  db=r; saveLocal(db); render(); setSyncUI('ok','متزامن ✓');
+});
+
+function initDB() {
+  let db = loadLocal();
+  if (!db) {
+    db = {
+      activeId: 'm1',
+      checks: [],
+      months: [{
+        id: 'm1', title: 'حساب شهر 3',
+        rows: [
+          {name:"عمار ابو حسين جمعيه فينا خير", amount:10000, note:""},
+          {name:"وفاء ام احمد",                  amount:10000, note:""},
+          {name:"علاء المغربي",                  amount:10000, note:""},
+          {name:"فضل شحاته",                     amount:5000,  note:""},
+          {name:"احمد وليد",                     amount:12000, note:""},
+          {name:"عبدالباسط المغربي",             amount:10000, note:""},
+          {name:"جمعيه زينب",                    amount:500,   note:""},
+          {name:"رز حبوب",                       amount:500,   note:""},
+          {name:"عاطف شاكر",                     amount:3000,  note:""},
+          {name:"عيديات ولاد خالي",              amount:3000,  note:""},
+          {name:"ستي",                           amount:1000,  note:"عيديه"},
+          {name:"احمد وليد",                     amount:1000,  note:"عيديه"},
+          {name:"عيال عمي محمد",                 amount:1000,  note:"عيديه"},
+        ]
+      }]
+    };
+  } else {
+    if (!db.checks) {
+      const firstWithChecks = db.months.find(m => m.checks && m.checks.length > 0);
+      db.checks = firstWithChecks ? firstWithChecks.checks : [];
+    }
+    db.months.forEach(m => { delete m.checks; });
+  }
+  saveDB(db);
+  return db;
+}
+
+let db = initDB();
+function activeMonth() { return db.months.find(m => m.id === db.activeId); }
+function fmt(n) { return Number(n).toLocaleString('en-US'); }
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+let editingIdx = null;
+let dragIdx = null;
+
+/* ── MONTHS BAR ── */
+function renderMonthsBar() {
+  const bar = document.getElementById('months-bar');
+  bar.innerHTML = db.months.map(m => {
+    const total = m.rows.reduce((s,r)=>s+r.amount,0);
+    const cls = m.id === db.activeId ? ' active' : '';
+    return `<button class="month-tab${cls}" onclick="switchMonth('${m.id}')">
+      <span>${esc(m.title)}</span>
+      <span class="tab-total">${fmt(total)}</span>
+    </button>`;
+  }).join('') + `<button class="btn-new-month" onclick="newMonth()">+ شهر جديد</button>`;
+}
+
+function switchMonth(id) {
+  db.activeId = id; saveDB(db); editingIdx = null; render();
+}
+
+/* ── MONTH MODAL ── */
+let modalMode = 'new';
+function newMonth() {
+  modalMode = 'new';
+  document.getElementById('modal-inp').value = 'حساب شهر ' + (db.months.length + 1);
+  openModal();
+}
+function openModal() {
+  document.getElementById('overlay').classList.add('show');
+  setTimeout(() => { const i = document.getElementById('modal-inp'); i.focus(); i.select(); }, 50);
+}
+function closeModal() { document.getElementById('overlay').classList.remove('show'); }
+document.getElementById('modal-inp').addEventListener('keydown', e => { if(e.key==='Enter') confirmModal(); if(e.key==='Escape') closeModal(); });
+document.getElementById('overlay').addEventListener('click', e => { if(e.target===document.getElementById('overlay')) closeModal(); });
+
+function confirmModal() {
+  const val = document.getElementById('modal-inp').value.trim();
+  if (!val) return;
+  if (modalMode === 'new') {
+    const id = 'm' + Date.now();
+    db.months.push({ id, title: val, rows: [], checks: [] });
+    db.activeId = id;
+  } else {
+    activeMonth().title = val;
+  }
+  saveDB(db); closeModal(); render();
+}
+
+document.addEventListener('click', e => {
+  const tab = e.target.closest('.month-tab.active');
+  if (tab) { modalMode = 'rename'; document.getElementById('modal-inp').value = activeMonth().title; openModal(); }
+});
+
+function deleteMonth() {
+  if (db.months.length === 1) { alert('لا يمكن حذف الشهر الوحيد'); return; }
+  if (!confirm('هل تريد حذف شهر "' + activeMonth().title + '" وكل بنوده؟')) return;
+  const idx = db.months.findIndex(m => m.id === db.activeId);
+  db.months.splice(idx, 1);
+  db.activeId = db.months[Math.max(0, idx-1)].id;
+  saveDB(db); render();
+}
+
+/* ── MAIN RENDER ── */
+function render() {
+  const m = activeMonth();
+  if (!m.checks) m.checks = [];
+  const rows = m.rows;
+
+  document.getElementById('table-title').textContent  = m.title;
+  document.getElementById('print-title').textContent  = m.title;
+
+  const tbody = document.getElementById('tbody');
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">لا توجد بنود — أضف بند جديد من الأعلى</td></tr>';
+  } else {
+    tbody.innerHTML = rows.map((r, i) => {
+      if (i === editingIdx) {
+        return `<tr class="editing" data-i="${i}">
+          <td></td><td class="td-num">${i+1}</td>
+          <td><input class="edit-input" id="e-name"   value="${esc(r.name)}" /></td>
+          <td><input class="edit-input" id="e-amount" type="number" value="${r.amount}" style="width:85px" /></td>
+          <td><input class="edit-input" id="e-note"   value="${esc(r.note||'')}" /></td>
+          <td><div class="row-btns">
+            <button class="save-btn" onclick="saveEdit(${i})">حفظ</button>
+            <button class="cancel-btn" onclick="cancelEdit()">✕</button>
+          </div></td>
+        </tr>`;
+      }
+      return `<tr draggable="true" data-i="${i}">
+        <td class="td-drag">☰</td>
+        <td class="td-num">${i+1}</td>
+        <td>${esc(r.name)}</td>
+        <td class="td-amount">${fmt(r.amount)}</td>
+        <td class="td-note">${esc(r.note||'—')}</td>
+        <td class="td-actions"><div class="row-btns">
+          <button class="icon-btn edit" onclick="startEdit(${i})" title="تعديل">✏</button>
+          <button class="icon-btn del"  onclick="delRow(${i})"   title="حذف">✕</button>
+        </div></td>
+      </tr>`;
+    }).join('');
+  }
+
+  if (editingIdx !== null) setTimeout(()=>{ const el=document.getElementById('e-name'); if(el) el.focus(); }, 30);
+
+  const total = rows.reduce((s,r)=>s+r.amount, 0);
+  document.getElementById('stat-total').textContent  = fmt(total);
+  document.getElementById('stat-count').textContent  = rows.length;
+  document.getElementById('foot-total').textContent  = fmt(total);
+  document.getElementById('badge-count').textContent = rows.length + ' بند';
+
+  renderChecklist();
+  renderMonthsBar();
+  attachDrag();
+}
+
+/* ── CHECKLIST ── */
+function renderChecklist() {
+  const checks = db.checks || [];
+  const done = checks.filter(c=>c.done).length;
+  document.getElementById('check-progress').textContent = checks.length + ' / ' + done;
+
+  const list = document.getElementById('check-list');
+  if (checks.length === 0) {
+    list.innerHTML = '<div class="check-empty">لا توجد ملاحظات بعد</div>';
+    return;
+  }
+  list.innerHTML = checks.map((c,i) => `
+    <div class="check-item${c.done?' done':''}" data-ci="${i}">
+      <input type="checkbox" id="chk-${i}" ${c.done?'checked':''} onchange="toggleCheck(${i})" />
+      <label for="chk-${i}">${esc(c.text)}</label>
+      <button class="check-del" onclick="delCheck(${i})" title="حذف">✕</button>
+    </div>`).join('');
+}
+
+function addCheck() {
+  const inp = document.getElementById('check-inp');
+  const text = inp.value.trim();
+  if (!text) { inp.focus(); return; }
+  if (!db.checks) db.checks = [];
+  db.checks.push({ text, done: false });
+  saveDB(db); inp.value = ''; renderChecklist();
+}
+
+document.getElementById('check-inp').addEventListener('keydown', e => { if(e.key==='Enter') addCheck(); });
+
+function toggleCheck(i) {
+  db.checks[i].done = !db.checks[i].done;
+  saveDB(db); renderChecklist();
+}
+
+function delCheck(i) {
+  db.checks.splice(i,1);
+  saveDB(db); renderChecklist();
+}
+
+/* ── ADD ROW ── */
+function addRow() {
+  const name   = document.getElementById('inp-name').value.trim();
+  const amount = parseFloat(document.getElementById('inp-amount').value) || 0;
+  const note   = document.getElementById('inp-note').value.trim();
+  if (!name) { document.getElementById('inp-name').focus(); return; }
+  activeMonth().rows.push({ name, amount, note });
+  saveDB(db);
+  document.getElementById('inp-name').value   = '';
+  document.getElementById('inp-amount').value = '';
+  document.getElementById('inp-note').value   = '';
+  document.getElementById('inp-name').focus();
+  editingIdx = null; render();
+  setTimeout(() => {
+    const trs = document.querySelectorAll('#tbody tr');
+    if (trs.length) trs[trs.length-1].classList.add('row-enter');
+  }, 10);
+}
+
+['inp-name','inp-amount','inp-note'].forEach(id => {
+  document.getElementById(id).addEventListener('keydown', e => { if(e.key==='Enter') addRow(); });
+});
+
+/* ── INLINE EDIT ── */
+function startEdit(i)  { editingIdx = i; render(); }
+function cancelEdit()  { editingIdx = null; render(); }
+
+function saveEdit(i) {
+  const name   = document.getElementById('e-name').value.trim();
+  const amount = parseFloat(document.getElementById('e-amount').value) || 0;
+  const note   = document.getElementById('e-note').value.trim();
+  if (!name) { document.getElementById('e-name').focus(); return; }
+  activeMonth().rows[i] = { name, amount, note };
+  saveDB(db); editingIdx = null; render();
+}
+
+document.addEventListener('keydown', e => {
+  if (editingIdx !== null && e.key==='Escape') cancelEdit();
+  if (editingIdx !== null && e.key==='Enter' && e.target.id && e.target.id.startsWith('e-')) saveEdit(editingIdx);
+});
+
+/* ── DELETE ROW ── */
+function delRow(i) {
+  if (!confirm('هل تريد حذف "' + activeMonth().rows[i].name + '"؟')) return;
+  activeMonth().rows.splice(i,1); saveDB(db); editingIdx = null; render();
+}
+
+/* ── DRAG REORDER ── */
+function attachDrag() {
+  document.querySelectorAll('#tbody tr[draggable]').forEach(tr => {
+    tr.addEventListener('dragstart', e => {
+      dragIdx = parseInt(tr.dataset.i);
+      e.dataTransfer.effectAllowed = 'move';
+      setTimeout(()=>tr.classList.add('dragging'), 0);
+    });
+    tr.addEventListener('dragend', () => {
+      tr.classList.remove('dragging');
+      document.querySelectorAll('#tbody tr').forEach(t=>t.classList.remove('drag-over'));
+    });
+    tr.addEventListener('dragover', e => {
+      e.preventDefault();
+      document.querySelectorAll('#tbody tr').forEach(t=>t.classList.remove('drag-over'));
+      tr.classList.add('drag-over');
+    });
+    tr.addEventListener('drop', e => {
+      e.preventDefault();
+      const dropIdx = parseInt(tr.dataset.i);
+      if (dragIdx !== null && dragIdx !== dropIdx) {
+        const rows = activeMonth().rows;
+        const moved = rows.splice(dragIdx,1)[0];
+        rows.splice(dropIdx,0,moved);
+        saveDB(db); render();
+      }
+    });
+  });
+}
+
+/* ── EXCEL ── */
+function exportExcel() {
+  const m = activeMonth();
+  const rows = m.rows;
+  const total = rows.reduce((s, r) => s + r.amount, 0);
+
+  // RTL column order: ملاحظات | المبلغ | البند | #
+  // Mapped to Excel cols A B C D  (sheet is RTL so A appears on right)
+  const wsData = [
+    ['ملاحظات', 'المبلغ (جنيه)', 'البند', '#'],          // row 1 = headers
+    ...rows.map((r, i) => [r.note || '', r.amount, r.name, i + 1]),
+    ['', '', '', ''],                                       // blank separator
+    ['', total, 'الإجمالي', '']                            // total row
+  ];
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+  // RTL sheet + freeze header row
+  ws['!sheetView'] = { rightToLeft: true };
+  ws['!freeze'] = { xSplit: 0, ySplit: 1, topLeftCell: 'A2', activePane: 'bottomLeft', state: 'frozen' };
+
+  // Column widths: ملاحظات | المبلغ | البند | #
+  ws['!cols'] = [{ wch: 28 }, { wch: 16 }, { wch: 36 }, { wch: 6 }];
+
+  const totalRows = rows.length;
+  const totalExcelRow = totalRows + 3; // 1-based
+
+  const DARK_GREEN  = '2C5F2E';
+  const MID_GREEN   = '4CAF50';
+  const LIGHT_GREEN = 'E8F5E9';
+  const ALT_GREEN   = 'F1F8E9';
+  const WHITE       = 'FFFFFF';
+  const TEXT_DARK   = '1A1A1A';
+  const TEXT_GREEN  = '1B5E20';
+  const BORDER_CLR  = 'B2DFDB';
+
+  const border = (style, clr) => ({ style, color: { rgb: clr } });
+  const allBorders = (s, c) => ({ top: border(s,c), bottom: border(s,c), left: border(s,c), right: border(s,c) });
+
+  function cellStyle(ref, s) {
+    if (!ws[ref]) ws[ref] = { t: 's', v: '' };
+    ws[ref].s = s;
+  }
+
+  // ── Header row (row 1) ──
+  ['A','B','C','D'].forEach((col, ci) => {
+    const ref = col + '1';
+    if (!ws[ref]) ws[ref] = { t: 's', v: '' };
+    ws[ref].s = {
+      font: { bold: true, sz: 13, color: { rgb: WHITE }, name: 'Arial' },
+      fill: { fgColor: { rgb: DARK_GREEN }, patternType: 'solid' },
+      alignment: { horizontal: 'center', vertical: 'center', readingOrder: 2, wrapText: false },
+      border: allBorders('thin', DARK_GREEN)
+    };
+  });
+  // Row height for header
+  if (!ws['!rows']) ws['!rows'] = [];
+  ws['!rows'][0] = { hpt: 28 };
+
+  // ── Data rows ──
+  for (let i = 0; i < rows.length; i++) {
+    const excelRow = i + 2;
+    const bg = i % 2 === 0 ? WHITE : ALT_GREEN;
+    ['A','B','C','D'].forEach((col, ci) => {
+      const ref = col + excelRow;
+      if (!ws[ref]) ws[ref] = { t: 's', v: '' };
+      ws[ref].s = {
+        font: { sz: 11, name: 'Arial',
+          bold: ci === 1,
+          color: { rgb: ci === 1 ? TEXT_GREEN : TEXT_DARK }
+        },
+        fill: { fgColor: { rgb: bg }, patternType: 'solid' },
+        alignment: {
+          horizontal: ci === 3 ? 'center' : ci === 1 ? 'center' : 'right',
+          vertical: 'center', readingOrder: 2
+        },
+        border: {
+          top:    border('thin', BORDER_CLR),
+          bottom: border('thin', BORDER_CLR),
+          left:   border('thin', BORDER_CLR),
+          right:  border('thin', BORDER_CLR)
+        }
+      };
+    });
+    // Amount cell as number with format
+    const amtRef = 'B' + excelRow;
+    if (ws[amtRef]) { ws[amtRef].t = 'n'; ws[amtRef].z = '#,##0'; }
+    ws['!rows'][excelRow - 1] = { hpt: 22 };
+  }
+
+  // ── Total row ──
+  ['A','B','C','D'].forEach((col, ci) => {
+    const ref = col + totalExcelRow;
+    if (!ws[ref]) ws[ref] = { t: 's', v: '' };
+    ws[ref].s = {
+      font: { bold: true, sz: 13, color: { rgb: WHITE }, name: 'Arial' },
+      fill: { fgColor: { rgb: DARK_GREEN }, patternType: 'solid' },
+      alignment: { horizontal: 'center', vertical: 'center', readingOrder: 2 },
+      border: allBorders('medium', DARK_GREEN)
+    };
+  });
+  const totalAmtRef = 'B' + totalExcelRow;
+  if (ws[totalAmtRef]) { ws[totalAmtRef].t = 'n'; ws[totalAmtRef].z = '#,##0'; }
+  ws['!rows'][totalExcelRow - 1] = { hpt: 26 };
+
+  XLSX.utils.book_append_sheet(wb, ws, m.title.substring(0, 31));
+
+  const date = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
+  XLSX.writeFile(wb, m.title + ' - ' + date + '.xlsx');
+}
+
+render();
+</script>
+</body>
+</html>
