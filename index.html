@@ -6,6 +6,8 @@
 <title>حساب المصاريف</title>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -26,6 +28,16 @@ header { background: var(--accent); color: #fff; padding: 0.9rem 1.5rem; display
 .btn-h:hover { background: rgba(255,255,255,0.28); }
 .btn-h.danger { background: rgba(192,57,43,0.4); border-color: rgba(192,57,43,0.6); }
 .btn-h.danger:hover { background: rgba(192,57,43,0.6); }
+.sync-badge { display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.25); padding:5px 12px; border-radius:20px; font-size:11px; font-weight:600; color:#fff; cursor:pointer; white-space:nowrap; transition:background .2s; }
+.sync-badge:hover { background:rgba(255,255,255,0.22); }
+.sync-dot { width:8px; height:8px; border-radius:50%; background:#4ade80; flex-shrink:0; transition:background .3s; }
+.sync-dot.syncing { background:#facc15; animation:sdBlink .7s infinite; }
+.sync-dot.error   { background:#f87171; animation:none; }
+@keyframes sdBlink { 0%,100%{opacity:1}50%{opacity:.25} }
+#sync-toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%) translateY(60px); background:#1a1a1a; color:#fff; border:1px solid #333; border-radius:10px; padding:10px 20px; font-family:'Cairo',sans-serif; font-size:13px; font-weight:600; z-index:9999; opacity:0; transition:all .3s; pointer-events:none; white-space:nowrap; }
+#sync-toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+#sync-toast.ok  { border-color:#4ade80; color:#4ade80; }
+#sync-toast.err { border-color:#f87171; color:#f87171; }
 
 /* ── MONTHS BAR ── */
 .months-bar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0.65rem 1.5rem; display: flex; align-items: center; gap: 8px; overflow-x: auto; position: sticky; top: 57px; z-index: 100; }
@@ -187,6 +199,10 @@ footer { grid-column: 1 / 3; text-align: center; padding: 1.2rem; color: var(--t
     <p>اضغط على اسم الشهر لتعديله</p>
   </div>
   <div class="hdr-btns">
+    <div class="sync-badge" onclick="forceSyncNow()" title="اضغط للمزامنة">
+      <div class="sync-dot" id="sync-dot"></div>
+      <span id="sync-label">جاري الاتصال…</span>
+    </div>
     <button class="btn-h" onclick="exportExcel()">⬇ Excel</button>
     <button class="btn-h danger" onclick="deleteMonth()">حذف الشهر</button>
   </div>
@@ -274,14 +290,64 @@ footer { grid-column: 1 / 3; text-align: center; padding: 1.2rem; color: var(--t
   </div>
 </div>
 
+<div id="sync-toast"></div>
 <script>
-const DB = 'hesab_db_v4';
+// ── FIREBASE ──
+const firebaseConfig = {
+  apiKey:            "AIzaSyDTIL7C9KljT_9GsdRBKiJW_aLorLw6iwA",
+  authDomain:        "sab-38f2b.firebaseapp.com",
+  databaseURL:       "https://sab-38f2b-default-rtdb.firebaseio.com",
+  projectId:         "sab-38f2b",
+  storageBucket:     "sab-38f2b.firebasestorage.app",
+  messagingSenderId: "291515525857",
+  appId:             "1:291515525857:web:d994df4475ee2fa08fe5a0"
+};
+firebase.initializeApp(firebaseConfig);
+const fbDB  = firebase.database();
+const dbRef = fbDB.ref('hesab_db_v4');
 
-function loadDB() { try { return JSON.parse(localStorage.getItem(DB)) || null; } catch { return null; } }
-function saveDB(db) { localStorage.setItem(DB, JSON.stringify(db)); }
+const LS_KEY = 'hesab_db_v4';
+function loadLocal()     { try { return JSON.parse(localStorage.getItem(LS_KEY))||null; } catch{return null;} }
+function saveLocal(d)    { localStorage.setItem(LS_KEY, JSON.stringify(d)); }
+
+function setSyncUI(status, text) {
+  document.getElementById('sync-dot').className   = 'sync-dot ' + (status==='ok'?'':status);
+  document.getElementById('sync-label').textContent = text;
+}
+function showToast(msg, type='ok') {
+  const t = document.getElementById('sync-toast');
+  t.textContent = msg; t.className = 'show ' + type;
+  clearTimeout(t._t); t._t = setTimeout(()=>t.className='', 2800);
+}
+
+function saveDB(data) {
+  saveLocal(data);
+  setSyncUI('syncing','جاري الحفظ…');
+  dbRef.set(data)
+    .then(()=>{ setSyncUI('ok','متزامن ✓'); showToast('✓ تم الحفظ على كل أجهزتك','ok'); })
+    .catch(()=>{ setSyncUI('error','خطأ في الحفظ'); showToast('⚠ فشل الحفظ — تحقق من الإنترنت','err'); });
+}
+
+function forceSyncNow() {
+  setSyncUI('syncing','جاري المزامنة…');
+  dbRef.once('value').then(snap=>{
+    const r=snap.val();
+    if(r){ db=r; saveLocal(db); render(); setSyncUI('ok','متزامن ✓'); showToast('🔄 تم التحديث'); }
+    else setSyncUI('ok','متزامن ✓');
+  }).catch(()=>setSyncUI('error','لا يوجد اتصال'));
+}
+
+// مستمع لحظي — يحدّث فوراً لو أي جهاز غيّر البيانات
+let _ignoreNext = false;
+dbRef.on('value', snap=>{
+  if(_ignoreNext){ _ignoreNext=false; return; }
+  const r=snap.val();
+  if(!r) return;
+  db=r; saveLocal(db); render(); setSyncUI('ok','متزامن ✓');
+});
 
 function initDB() {
-  let db = loadDB();
+  let db = loadLocal();
   if (!db) {
     db = {
       activeId: 'm1',
