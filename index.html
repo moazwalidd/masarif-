@@ -151,28 +151,41 @@ footer { grid-column: 1 / 3; text-align: center; padding: 1.2rem; color: var(--t
 @media print {
   header, .months-bar, .form-card, .stats-grid,
   .hint, .badge, .right-col, footer,
-  td.td-drag, td.td-num, td.td-actions { display: none !important; }
+  td.td-drag, td.td-num, td.td-actions,
+  #income-add-form { display: none !important; }
 
   body { background: #fff; direction: rtl; }
   main { display: block; max-width: 100%; padding: 0; }
   .left-col { display: block; }
 
   .print-only { display: block !important; }
-  .print-header { text-align: center; padding: 0 0 1rem; }
+  .print-header { text-align: center; padding: 0 0 0.6rem; }
   .print-header h1 { font-size: 20px; font-weight: 700; color: #2C5F2E; }
   .print-header p  { font-size: 12px; color: #666; margin-top: 3px; }
 
-  .table-card { box-shadow: none; border: 1px solid #ccc; border-radius: 0; }
-  .table-header { display: none !important; }
+  /* summary box under title */
+  .print-summary { display: flex !important; justify-content: center; gap: 2rem; margin: 0.5rem 0 1rem; }
+  .print-summary-item { text-align: center; }
+  .print-summary-item .ps-label { font-size: 11px; color: #666; }
+  .print-summary-item .ps-val   { font-size: 16px; font-weight: 800; }
+
+  .table-card { box-shadow: none; border: 1px solid #ccc; border-radius: 0; margin-bottom: 1.2rem; }
+  .table-header h2 { display: block !important; }
+  .table-header .hint, .table-header .badge { display: none !important; }
+  /* hide income add form row in print */
+  .table-card > div:not(.table-header):not(table) { display: none !important; }
 
   table { width: 100%; border-collapse: collapse; font-size: 13px; direction: rtl; }
-  /* Force RTL column order: البند | المبلغ | الملاحظات */
   thead tr, tbody tr, tfoot tr { display: table-row; direction: rtl; }
   th, td { text-align: right; padding: 8px 10px; border: 1px solid #ccc; }
   thead th { background: #e8f5e9 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; font-weight: 700; }
   tfoot td { background: #d4edbe !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; font-weight: 700; }
   tbody tr:nth-child(even) td { background: #f5faf5 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  td.td-amount { color: #2C5F2E; font-weight: 700; }
+  td.td-amount, .total-amount { color: #2C5F2E; font-weight: 700; }
+  /* income table header color */
+  #income-table thead th { background: #e0f2f7 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #income-table tfoot td { background: #b3e0ef !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #income-table .total-amount { color: #1a6b8a !important; }
   @page { margin: 1.5cm; size: A4; }
 }
 
@@ -191,6 +204,20 @@ footer { grid-column: 1 / 3; text-align: center; padding: 1.2rem; color: var(--t
 <div class="print-only print-header">
   <h1 id="print-title"></h1>
   <p id="print-date"></p>
+  <div class="print-summary" style="display:none">
+    <div class="print-summary-item">
+      <div class="ps-label">المصاريف</div>
+      <div class="ps-val" id="print-expenses" style="color:#2C5F2E"></div>
+    </div>
+    <div class="print-summary-item">
+      <div class="ps-label">الدواخل</div>
+      <div class="ps-val" id="print-incomes" style="color:#1a6b8a"></div>
+    </div>
+    <div class="print-summary-item">
+      <div class="ps-label">الصافي</div>
+      <div class="ps-val" id="print-net"></div>
+    </div>
+  </div>
 </div>
 
 <header>
@@ -204,6 +231,7 @@ footer { grid-column: 1 / 3; text-align: center; padding: 1.2rem; color: var(--t
       <span id="sync-label">جاري الاتصال…</span>
     </div>
     <button class="btn-h" onclick="exportExcel()">⬇ Excel</button>
+    <button class="btn-h" onclick="window.print()">🖨 طباعة / PDF</button>
     <button class="btn-h danger" onclick="deleteMonth()">حذف الشهر</button>
   </div>
 </header>
@@ -216,6 +244,8 @@ footer { grid-column: 1 / 3; text-align: center; padding: 1.2rem; color: var(--t
     <div class="stats-grid">
       <div class="stat-card"><div class="stat-label">إجمالي المصاريف</div><div class="stat-value" id="stat-total">0</div></div>
       <div class="stat-card"><div class="stat-label">عدد البنود</div><div class="stat-value" id="stat-count">0</div></div>
+      <div class="stat-card"><div class="stat-label">الدواخل</div><div class="stat-value" style="color:#1a6b8a" id="stat-income">0</div></div>
+      <div class="stat-card"><div class="stat-label">الصافي</div><div class="stat-value" id="stat-net">0</div></div>
     </div>
 
     <!-- Add form -->
@@ -229,7 +259,7 @@ footer { grid-column: 1 / 3; text-align: center; padding: 1.2rem; color: var(--t
       </div>
     </div>
 
-    <!-- Table -->
+    <!-- Expenses Table -->
     <div class="table-card">
       <div class="table-header">
         <div><h2 id="table-title">قائمة المصاريف</h2><div class="hint">اسحب ☰ لتغيير الترتيب &nbsp;|&nbsp; ✏ للتعديل</div></div>
@@ -251,6 +281,42 @@ footer { grid-column: 1 / 3; text-align: center; padding: 1.2rem; color: var(--t
           <tr>
             <td colspan="3">الإجمالي</td>
             <td class="total-amount" id="foot-total">0</td>
+            <td colspan="2"></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <!-- Dakhil (Income) Table -->
+    <div class="table-card" style="margin-top:0">
+      <div class="table-header">
+        <div><h2 style="color:#1a6b8a">الدواخل</h2><div class="hint">✏ للتعديل</div></div>
+        <span class="badge" id="badge-income-count">0 بند</span>
+      </div>
+      <!-- Add income form -->
+      <div style="padding:0.8rem 1rem;border-bottom:1px solid var(--border);background:var(--surface2)">
+        <div class="form-row">
+          <div class="field f-name"><label>البند</label><input type="text" id="inp-inc-name" placeholder="اسم الداخل..." /></div>
+          <div class="field f-amount"><label>المبلغ</label><input type="number" id="inp-inc-amount" placeholder="0" min="0" /></div>
+          <div class="field f-note"><label>ملاحظات</label><input type="text" id="inp-inc-note" placeholder="اختياري..." /></div>
+          <button class="btn-add" style="background:#1a6b8a" onclick="addIncomeRow()">+ إضافة</button>
+        </div>
+      </div>
+      <table id="income-table">
+        <thead>
+          <tr>
+            <th style="width:22px;text-align:center">#</th>
+            <th>البند</th>
+            <th style="width:110px">المبلغ</th>
+            <th style="width:130px">ملاحظات</th>
+            <th style="width:56px"></th>
+          </tr>
+        </thead>
+        <tbody id="income-tbody"></tbody>
+        <tfoot>
+          <tr>
+            <td colspan="2">الإجمالي</td>
+            <td class="total-amount" style="color:#1a6b8a" id="foot-income-total">0</td>
             <td colspan="2"></td>
           </tr>
         </tfoot>
@@ -492,11 +558,28 @@ function render() {
   if (editingIdx !== null) setTimeout(()=>{ const el=document.getElementById('e-name'); if(el) el.focus(); }, 30);
 
   const total = rows.reduce((s,r)=>s+r.amount, 0);
-  document.getElementById('stat-total').textContent  = fmt(total);
-  document.getElementById('stat-count').textContent  = rows.length;
-  document.getElementById('foot-total').textContent  = fmt(total);
-  document.getElementById('badge-count').textContent = rows.length + ' بند';
+  const income = (activeMonth().income||[]).reduce((s,r)=>s+r.amount, 0);
+  const net = income - total;
 
+  document.getElementById('stat-total').textContent   = fmt(total);
+  document.getElementById('stat-count').textContent   = rows.length;
+  document.getElementById('stat-income').textContent  = fmt(income);
+  const netEl = document.getElementById('stat-net');
+  netEl.textContent = fmt(Math.abs(net));
+  netEl.style.color = net >= 0 ? '#2C5F2E' : '#C0392B';
+  document.getElementById('foot-total').textContent   = fmt(total);
+  document.getElementById('badge-count').textContent  = rows.length + ' بند';
+
+  // print summary
+  document.getElementById('print-expenses').textContent = fmt(total);
+  document.getElementById('print-incomes').textContent  = fmt(income);
+  const pNet = document.getElementById('print-net');
+  pNet.textContent   = fmt(Math.abs(net));
+  pNet.style.color   = net >= 0 ? '#2C5F2E' : '#C0392B';
+  document.getElementById('print-date').textContent =
+    new Date().toLocaleDateString('ar-EG', {year:'numeric',month:'long',day:'numeric'});
+
+  renderIncome();
   renderChecklist();
   renderMonthsBar();
   attachDrag();
@@ -520,6 +603,57 @@ function renderChecklist() {
       <button class="check-del" onclick="delCheck(${i})" title="حذف">✕</button>
     </div>`).join('');
 }
+
+/* ── INCOME (الدواخل) ── */
+function renderIncome() {
+  const m = activeMonth();
+  if (!m.income) m.income = [];
+  const rows = m.income;
+  const tbody = document.getElementById('income-tbody');
+  document.getElementById('badge-income-count').textContent = rows.length + ' بند';
+
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">لا توجد دواخل — أضف من الأعلى</td></tr>';
+  } else {
+    tbody.innerHTML = rows.map((r,i) => `
+      <tr>
+        <td class="td-num">${i+1}</td>
+        <td>${esc(r.name)}</td>
+        <td class="td-amount" style="color:#1a6b8a">${fmt(r.amount)}</td>
+        <td class="td-note">${esc(r.note||'—')}</td>
+        <td class="td-actions"><div class="row-btns">
+          <button class="icon-btn del" onclick="delIncomeRow(${i})" title="حذف">✕</button>
+        </div></td>
+      </tr>`).join('');
+  }
+  const total = rows.reduce((s,r)=>s+r.amount, 0);
+  document.getElementById('foot-income-total').textContent = fmt(total);
+}
+
+function addIncomeRow() {
+  const name   = document.getElementById('inp-inc-name').value.trim();
+  const amount = parseFloat(document.getElementById('inp-inc-amount').value) || 0;
+  const note   = document.getElementById('inp-inc-note').value.trim();
+  if (!name) { document.getElementById('inp-inc-name').focus(); return; }
+  if (!activeMonth().income) activeMonth().income = [];
+  activeMonth().income.push({ name, amount, note });
+  saveDB(db);
+  document.getElementById('inp-inc-name').value   = '';
+  document.getElementById('inp-inc-amount').value = '';
+  document.getElementById('inp-inc-note').value   = '';
+  document.getElementById('inp-inc-name').focus();
+  render();
+}
+
+function delIncomeRow(i) {
+  if (!confirm('هل تريد حذف "' + activeMonth().income[i].name + '"؟')) return;
+  activeMonth().income.splice(i,1); saveDB(db); render();
+}
+
+['inp-inc-name','inp-inc-amount','inp-inc-note'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('keydown', e => { if(e.key==='Enter') addIncomeRow(); });
+});
 
 function addCheck() {
   const inp = document.getElementById('check-inp');
