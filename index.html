@@ -6,9 +6,6 @@
 <title>حساب المصاريف</title>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<!-- Firebase -->
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -137,22 +134,6 @@ tfoot .total-amount { color: var(--accent); font-size: 16px; }
 
 footer { grid-column: 1 / 3; text-align: center; padding: 1.2rem; color: var(--text3); font-size: 12px; }
 
-/* ── SYNC BADGE ── */
-.sync-wrap { display:flex; align-items:center; gap:8px; }
-.sync-badge { display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.2); padding:5px 12px; border-radius:20px; font-size:11px; font-weight:600; color:#fff; cursor:pointer; transition:background .2s; white-space:nowrap; }
-.sync-badge:hover { background:rgba(255,255,255,0.22); }
-.sync-dot { width:8px; height:8px; border-radius:50%; background:#4ade80; flex-shrink:0; }
-.sync-dot.syncing { background:#facc15; animation:blink .7s infinite; }
-.sync-dot.error   { background:#f87171; }
-.sync-dot.offline { background:#9ca3af; }
-@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
-
-/* ── TOAST ── */
-#sync-toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%) translateY(60px); background:#1a1a1a; color:#fff; border-radius:10px; padding:10px 20px; font-family:'Cairo',sans-serif; font-size:13px; font-weight:600; z-index:9999; opacity:0; transition:all .3s ease; pointer-events:none; white-space:nowrap; border:1px solid #333; }
-#sync-toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
-#sync-toast.success { border-color:#4ade80; color:#4ade80; }
-#sync-toast.error   { border-color:#f87171; color:#f87171; }
-
 /* ── PRINT ── */
 .print-only { display: none; }
 @media print {
@@ -205,11 +186,7 @@ footer { grid-column: 1 / 3; text-align: center; padding: 1.2rem; color: var(--t
     <h1>حساب المصاريف</h1>
     <p>اضغط على اسم الشهر لتعديله</p>
   </div>
-  <div class="hdr-btns sync-wrap">
-    <div class="sync-badge" onclick="forceSyncNow()" title="اضغط للمزامنة الآن">
-      <div class="sync-dot" id="sync-dot"></div>
-      <span id="sync-label">جاري الاتصال…</span>
-    </div>
+  <div class="hdr-btns">
     <button class="btn-h" onclick="exportExcel()">⬇ Excel</button>
     <button class="btn-h danger" onclick="deleteMonth()">حذف الشهر</button>
   </div>
@@ -297,87 +274,16 @@ footer { grid-column: 1 / 3; text-align: center; padding: 1.2rem; color: var(--t
   </div>
 </div>
 
-<!-- Sync Toast -->
-<div id="sync-toast"></div>
-
 <script>
-// ══════════════════════════════════════════
-//  FIREBASE CONFIG  ← بياناتك الشخصية هنا
-// ══════════════════════════════════════════
-const firebaseConfig = {
-  apiKey:            "AIzaSyDTIL7C9KljT_9GsdRBKiJW_aLorLw6iwA",
-  authDomain:        "sab-38f2b.firebaseapp.com",
-  databaseURL:       "https://sab-38f2b-default-rtdb.firebaseio.com",
-  projectId:         "sab-38f2b",
-  storageBucket:     "sab-38f2b.firebasestorage.app",
-  messagingSenderId: "291515525857",
-  appId:             "1:291515525857:web:d994df4475ee2fa08fe5a0"
-};
+const DB = 'hesab_db_v4';
 
-const FB_KEY = 'hesab_db_v4'; // مفتاح البيانات في Firebase
-
-firebase.initializeApp(firebaseConfig);
-const fbDB  = firebase.database();
-const dbRef = fbDB.ref(FB_KEY);
-
-// ── LOCAL fallback ──
-const LS_KEY = 'hesab_db_v4';
-function loadLocal()      { try { return JSON.parse(localStorage.getItem(LS_KEY)) || null; } catch { return null; } }
-function saveLocal(data)  { localStorage.setItem(LS_KEY, JSON.stringify(data)); }
-
-// ── SYNC STATUS UI ──
-function setSyncStatus(status, text) {
-  const dot   = document.getElementById('sync-dot');
-  const label = document.getElementById('sync-label');
-  dot.className = 'sync-dot ' + status;
-  label.textContent = text;
-}
-
-// ── TOAST ──
-function showToast(msg, type='success') {
-  const t = document.getElementById('sync-toast');
-  t.textContent = msg;
-  t.className = 'show ' + type;
-  clearTimeout(t._t);
-  t._t = setTimeout(() => t.className = '', 2800);
-}
-
-// ── SAVE TO FIREBASE ──
-function saveDB(data) {
-  saveLocal(data);
-  setSyncStatus('syncing', 'جاري الحفظ…');
-  dbRef.set(data)
-    .then(() => { setSyncStatus('', 'متزامن ✓'); showToast('✓ تم الحفظ على كل أجهزتك', 'success'); })
-    .catch(() => { setSyncStatus('error', 'خطأ في الحفظ'); showToast('⚠ لم يتم الحفظ — تحقق من الإنترنت', 'error'); });
-}
-
-// ── FORCE SYNC ──
-function forceSyncNow() {
-  setSyncStatus('syncing', 'جاري المزامنة…');
-  dbRef.once('value').then(snap => {
-    const remote = snap.val();
-    if (remote) { db = remote; saveLocal(db); render(); setSyncStatus('', 'متزامن ✓'); showToast('🔄 تم التحديث من السيرفر'); }
-    else { setSyncStatus('', 'متزامن ✓'); }
-  }).catch(() => setSyncStatus('error', 'لا يوجد اتصال'));
-}
-
-// ── REALTIME LISTENER ── (يتحدث لحظياً من أي جهاز)
-let localWriting = false;
-dbRef.on('value', snap => {
-  if (localWriting) return;
-  const remote = snap.val();
-  if (!remote) return;
-  db = remote;
-  saveLocal(db);
-  render();
-  setSyncStatus('', 'متزامن ✓');
-});
+function loadDB() { try { return JSON.parse(localStorage.getItem(DB)) || null; } catch { return null; } }
+function saveDB(db) { localStorage.setItem(DB, JSON.stringify(db)); }
 
 function initDB() {
-  // 1) ابدأ بالداتا المحلية عشان التطبيق يشتغل فوراً
-  let data = loadLocal();
-  if (!data) {
-    data = {
+  let db = loadDB();
+  if (!db) {
+    db = {
       activeId: 'm1',
       checks: [],
       months: [{
@@ -400,15 +306,14 @@ function initDB() {
       }]
     };
   } else {
-    if (!data.checks) {
-      const firstWithChecks = data.months.find(m => m.checks && m.checks.length > 0);
-      data.checks = firstWithChecks ? firstWithChecks.checks : [];
+    if (!db.checks) {
+      const firstWithChecks = db.months.find(m => m.checks && m.checks.length > 0);
+      db.checks = firstWithChecks ? firstWithChecks.checks : [];
     }
-    data.months.forEach(m => { delete m.checks; });
+    db.months.forEach(m => { delete m.checks; });
   }
-  saveLocal(data);
-  setSyncStatus('syncing', 'جاري الاتصال…');
-  return data;
+  saveDB(db);
+  return db;
 }
 
 let db = initDB();
